@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "probe402-check": {
+      "command": "node",
+      "args": ["/absolute/path/to/probe402-check/dist/cli/mcp.js"]
+    }
+  }
+}

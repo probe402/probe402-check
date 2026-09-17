@@ -1,0 +1,61 @@
+{
+  "name": "probe402-check",
+  "version": "0.1.0",
+  "description": "Ask probe402's public record about an x402 endpoint before an agent pays it, and re-check a published archive head from a terminal. Reads public surfaces of probe402.com only.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/probe402/probe402-check.git"
+  },
+  "homepage": "https://github.com/probe402/probe402-check#readme",
+  "bugs": {
+    "url": "https://github.com/probe402/probe402-check/issues"
+  },
+  "keywords": [
+    "x402",
+    "mpp",
+    "agent-payments",
+    "mcp",
+    "mcp-server",
+    "probe402"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "probe402-check": "./dist/cli/check.js",
+    "probe402-check-mcp": "./dist/cli/mcp.js",
+    "probe402-verify-head": "./dist/cli/verify-head.js"
+  },
+  "files": [
+    "dist",
+    "examples",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepare": "npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm run build",
+    "test": "node --test test/*.test.ts",
+    "demo": "node examples/agent-decides.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
