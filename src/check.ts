@@ -11,6 +11,7 @@
  * host's routes, each with its own grade address.
  */
 import { ENDPOINT_ID, fetchPublic, gradeByIdUrl, gradeByUrlUrl, type Fetch } from "./public-surfaces.ts";
+import { factsOf, type Fact } from "./facts.ts";
 
 /** The grade address an answer names for a route; the record's own `grade_url` when it carries one. */
 function citeOf(answer: Record<string, unknown>, id: string): string {
@@ -106,6 +107,8 @@ export type RouteResult = {
   method: string | null;
   non_affiliation: string | null;
   verdict: string;
+  /** The readings this verdict stood on, each with its date and the address that holds it. */
+  facts: Fact[];
 };
 
 export type HostRoute = {
@@ -128,6 +131,7 @@ export type HostResult = {
   counts: { routes: number; on_panel: number; paid: number };
   statement: string | null;
   verdict: string;
+  facts: Fact[];
 };
 
 export type NotOnRecordResult = {
@@ -137,6 +141,7 @@ export type NotOnRecordResult = {
   reason: string | null;
   statement: string | null;
   verdict: string;
+  facts: Fact[];
 };
 
 export type CheckResult = RouteResult | HostResult | NotOnRecordResult;
@@ -158,7 +163,7 @@ export function readAnswer(asked: string, answer: Record<string, unknown>, heldQ
   if (kind === "host") return readHost(asked, answer);
   const statement = str(answer["statement"]);
   const reason = str(answer["reason"]);
-  return {
+  const notOnRecord: NotOnRecordResult = {
     kind: "not-on-record",
     asked,
     answer_kind: kind,
@@ -167,7 +172,10 @@ export function readAnswer(asked: string, answer: Record<string, unknown>, heldQ
     verdict:
       `probe402 holds no record of ${asked} (${reason ?? kind}). That is a fact about probe402's coverage and says nothing ` +
       `about the endpoint. There is no reading to cite.`,
+    facts: [],
   };
+  notOnRecord.facts = factsOf(notOnRecord);
+  return notOnRecord;
 }
 
 function readRoute(asked: string, answer: Record<string, unknown>, heldQuote: HeldQuote | null): RouteResult {
@@ -265,8 +273,10 @@ function readRoute(asked: string, answer: Record<string, unknown>, heldQuote: He
     method: str(answer["method_url"]),
     non_affiliation: str(answer["non_affiliation"]),
     verdict: "",
+    facts: [],
   };
   result.verdict = routeVerdict(result);
+  result.facts = factsOf(result);
   return result;
 }
 
@@ -292,7 +302,7 @@ function readHost(asked: string, answer: Record<string, unknown>): HostResult {
   });
   const onPanel = routes.filter((r) => r.on_panel).length;
   const paidCount = routes.filter((r) => r.last_paid_at !== null).length;
-  return {
+  const hostResult: HostResult = {
     kind: "host",
     asked,
     host,
@@ -303,7 +313,10 @@ function readHost(asked: string, answer: Record<string, unknown>): HostResult {
       `${host} has ${routes.length} route(s) on probe402's list; ${onPanel} of them on the paid panel and ${paidCount} paid by ` +
       `probe402. This address names a host, not a route, so nothing here grades anything: ask again with the full URL of ` +
       `the route you are about to pay, and cite that route's own grade.`,
+    facts: [],
   };
+  hostResult.facts = factsOf(hostResult);
+  return hostResult;
 }
 
 /** The one-line reading an agent can put in its own reasoning. */

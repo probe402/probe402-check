@@ -3,8 +3,11 @@
 Ask probe402's public record about an x402 endpoint before your agent pays it, and re-check a
 published archive head from your own terminal.
 
-Two small tools, one repository, Apache-2.0:
+Three small tools, one repository, Apache-2.0:
 
+- **`wrapFetchWithCheck`** — an x402 client hook. Wrap the fetch your x402 client pays through and
+  every 402 is checked against probe402's record before the payment is signed, against a policy you
+  write. It never touches your signer and never changes the payment.
 - **`check_before_paying`** — an MCP server and a CLI. Give it the URL your agent is about to pay.
   It reads that route's free grade on probe402.com and answers: was it quoting at the newest reading,
   quoting what, has probe402 itself paid it and how was the result graded, how old is that reading
@@ -16,6 +19,140 @@ Two small tools, one repository, Apache-2.0:
 
 The tool reads public surfaces of probe402.com and one public git repository, and nothing else. There
 is no key, no account and no payment anywhere in it.
+
+## Use it in 60 seconds
+
+**Claude Desktop** — add this to `claude_desktop_config.json` and restart:
+
+```json
+{
+  "mcpServers": {
+    "probe402-check": {
+      "command": "npx",
+      "args": ["-y", "probe402-check", "--mcp"]
+    }
+  }
+}
+```
+
+**Claude Code** — one line:
+
+```sh
+claude mcp add probe402-check -- npx -y probe402-check --mcp
+```
+
+**OpenAI Agents SDK** — copy [`examples/openai-agents-tool.ts`](examples/openai-agents-tool.ts) into
+your project (it is forty lines, and it builds the tool with `tool()` from `@openai/agents`, which you
+install yourself):
+
+```ts
+import { Agent } from "@openai/agents";
+import { checkTool } from "./openai-agents-tool.ts";
+
+const agent = new Agent({
+  name: "buyer",
+  instructions: "Before paying any x402 endpoint, call check_before_paying and reason from its verdict.",
+  tools: [checkTool],
+});
+```
+
+Then ask for a route by URL: *check https://datastand.dev/api/data/dev-signals before I pay it.*
+
+The `npx` forms above work once the package is on npm; until then, clone (see [Install](#install)) and
+point the command at `node /absolute/path/to/probe402-check/dist/cli/mcp.js`.
+
+## At the payment: the x402 client hook
+
+The MCP tool answers when an agent remembers to ask. An agent has to remember. The hook does not
+depend on remembering: it sits under the fetch your x402 client pays through, so every 402 is checked
+**before the payment is signed**.
+
+One import, three lines:
+
+```ts
+import { wrapFetchWithPayment } from "@x402/fetch";
+import { wrapFetchWithCheck } from "probe402-check";
+
+const fetchWithPay = wrapFetchWithPayment(wrapFetchWithCheck(fetch), client);
+```
+
+It goes *underneath* the payment wrapper, because that is where the 402 arrives. `x402-fetch` (the v1
+package) composes the same way. Now any request your agent makes is checked at the moment it would
+cost money:
+
+```ts
+const response = await fetchWithPay("https://datastand.dev/api/data/dev-signals");
+```
+
+What the hook does on a 402: reads the challenge (through a clone, so your client still reads it
+itself), asks probe402 about that exact URL — one request, to the free grade — compares every way to
+pay the 402 offers against the quote probe402 recorded, and applies your policy. Then it hands the
+402 back untouched and your client signs, or it throws `PaymentBlocked` and your client never sees it.
+
+It never touches your signer, your key or your wallet; it adds no header, removes none, and changes
+no payment. A request that already carries a payment header is your client's own retry and is passed
+straight through, so one payment costs one question.
+
+### The policy is yours
+
+The tool reports facts. What a fact is worth is your call, so each check produces named **signals**
+and your policy maps each name to `allow`, `warn` or `block`. The loudest wins. These are the
+defaults:
+
+| Signal | Default | What it means |
+|---|---|---|
+| `never-observed-delivering` | **block** | probe402 paid this route, money moved, and no payment of its own came back with an answer |
+| `payment-address-differs` | **block** | no way to pay this 402 names the payment address probe402 recorded |
+| `quote-differs` | warn | the live 402 differs from the recorded quote on amount, asset, network or scheme |
+| `reading-past-cadence` | warn | the newest reading is older than the cadence this route is read on |
+| `newest-paid-attempt-refused` | warn | probe402's newest paid attempt was refused before settlement — nothing was paid |
+| `settlement-not-corroborated` | warn | every paid attempt probe402 holds leaves it unable to say whether money moved |
+| `paid-word-not-known` | warn | probe402 graded a payment with a word this version does not classify |
+| `never-paid` | warn | probe402 has not paid this route, so it holds no paid-delivery reading |
+| `not-quoting` | warn | the newest reading was not a payment quote |
+| `no-reading` | warn | probe402 holds the route and has no reading of it in the window |
+| `not-on-record` | warn | probe402 holds no record of this address |
+| `host-not-route` | warn | the address names a host, so nothing here grades a route |
+| `record-unavailable` | warn | probe402 could not be asked |
+
+Two rows block, and both are about money that was actually sent: payments probe402 made that were
+never answered, and a payment address that is not the one it recorded. Everything else reports.
+
+A row probe402's own absence produces — `never-paid`, `not-on-record`, `record-unavailable` — warns
+and does not block on purpose. probe402 not having looked is a fact about probe402, and it should
+never be the thing that stops somebody's payment.
+
+Change any row with one line:
+
+```ts
+const fetchWithPay = wrapFetchWithPayment(
+  wrapFetchWithCheck(fetch, {
+    policy: { "reading-past-cadence": "block", "never-observed-delivering": "warn" },
+    onDecision: (decision) => log.info(decision.line),
+  }),
+  client,
+);
+```
+
+`onDecision` is called with every decision before it is acted on: the ruling, every signal with its
+own date, the facts underneath, probe402's whole answer, and the address to cite. `warn` lines go to
+standard error unless you pass a `warn` of your own.
+
+### Catching the block
+
+```ts
+import { PaymentBlocked } from "probe402-check";
+
+try {
+  await fetchWithPay(url);
+} catch (error) {
+  if (error instanceof PaymentBlocked) {
+    console.error(error.decision.because);
+    console.error(`the record is at ${error.decision.cite}`);
+    for (const fact of error.decision.facts) console.error(`${fact.as_of ?? "no date"} ${fact.fact}`);
+  }
+}
+```
 
 ## What probe402 measures
 
@@ -81,6 +218,9 @@ node dist/cli/check.js ep_67bec7d9e13ef185 --pay-to 0x470a1b647d668d3820add26d70
 
 # a host: its routes, each with a grade address
 node dist/cli/check.js https://api.myceliasignal.com
+
+# the readings a verdict stood on, each with its date and the address that holds it
+node dist/cli/check.js ep_4d864a69497e351a --explain
 ```
 
 After `npm link` (or a global install) the same commands are `probe402-check`, `probe402-check-mcp`
@@ -95,12 +235,17 @@ optional `held_quote` (`pay_to`, `amount_atomic`, `network`, `asset`, `scheme`).
 {
   "mcpServers": {
     "probe402-check": {
-      "command": "node",
-      "args": ["/absolute/path/to/probe402-check/dist/cli/mcp.js"]
+      "command": "npx",
+      "args": ["-y", "probe402-check", "--mcp"]
     }
   }
 }
 ```
+
+From a clone rather than npm, the command is `node` and the argument is
+`/absolute/path/to/probe402-check/dist/cli/mcp.js`; `examples/claude-mcp-config.json` holds that form.
+The package is registered with the MCP registry as `io.github.probe402/probe402-check`
+(`server.json` in this repository).
 
 The same block is in [`examples/claude-mcp-config.json`](examples/claude-mcp-config.json). For
 Claude Code: `claude mcp add probe402-check -- node /absolute/path/to/probe402-check/dist/cli/mcp.js`.
@@ -142,7 +287,27 @@ console.log(result.verdict);
 
 `result.kind` is `route`, `host` or `not-on-record`; the fields are typed in `dist/index.d.ts`.
 
-## The demo: an agent decides
+## The demos
+
+### An agent meets three 402s and pays one, warns on one, refuses one
+
+[`examples/agent-pays.ts`](examples/agent-pays.ts) is the hook doing its job. Three live routes on
+probe402's list answer 402; the hook asks probe402 about each; the default policy lets the payment
+through, warns and lets it through, and stops it. About fifteen seconds.
+
+```sh
+node examples/agent-pays.ts
+```
+
+The readings are live. The payment is not: there is no wallet, no key and no signer in that file or in
+this package. The x402 client is a ten-line stand-in composed the way the published one composes, and
+where the real one signs, it writes a line saying it signed — so what the run shows is the ORDER.
+
+The three: a route probe402 pays and whose newest payment was graded *Settled and answered* goes
+through; a route whose every paid attempt was *Refused before settlement* warns and goes through; a
+route probe402 paid twice, both corroborated on Base, neither answered, is stopped before the signer.
+
+### An agent asks before it pays
 
 [`examples/agent-decides.ts`](examples/agent-decides.ts) is an agent about to pay three routes on
 probe402's list. It asks, prints what probe402 says, and decides `PAY`, `HOLD` or `REFUSE` by a policy

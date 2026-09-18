@@ -14,6 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { readAnswer } from "../src/check.ts";
+import { signalsOf } from "../src/policy.ts";
 import { TOOL_DESCRIPTION } from "../src/mcp-server.ts";
 import { renderVerification, verifyHead } from "../src/verify-head.ts";
 import { chainDayUrl, headsMirrorTableUrl, type Fetch } from "../src/public-surfaces.ts";
@@ -82,17 +83,31 @@ test("every string the sources and examples carry passes the gate", async () => 
 });
 
 test("every verdict the recorded answers produce passes the gate", async () => {
-  const fixtures = ["grade-ep_67bec7d9e13ef185.json", "grade-ep_addf52df476011b1.json", "grade-ep_e68279cac4e97ffb.json", "grade-host-api.myceliasignal.com.json", "grade-not-covered.json"];
+  const fixtures = [
+    "grade-ep_67bec7d9e13ef185.json",
+    "grade-ep_addf52df476011b1.json",
+    "grade-ep_e68279cac4e97ffb.json",
+    "grade-ep_2ad33c17afc373f4.json",
+    "grade-ep_4d864a69497e351a.json",
+    "grade-host-api.myceliasignal.com.json",
+    "grade-not-covered.json",
+  ];
   let verdicts = 0;
+  let sentences = 0;
   for (const name of fixtures) {
     const answer = JSON.parse(await readFile(new URL(`./fixtures/${name}`, import.meta.url), "utf8")) as Record<string, unknown>;
     for (const held of [null, { pay_to: "0x1", amount_atomic: "1", network: "eip155:1", asset: "0x2", scheme: "exact" }]) {
       const result = readAnswer("asked", answer, held);
       verdicts++;
       scan(`${name} verdict`, outsideCodeSpans(result.verdict));
+      // The verdict is one sentence; the facts and the signals are the rest of what this tool says.
+      for (const fact of result.facts) scan(`${name} fact`, outsideCodeSpans(fact.fact));
+      for (const signal of signalsOf(result, null)) scan(`${name} signal ${signal.name}`, outsideCodeSpans(signal.because));
+      sentences += result.facts.length;
     }
   }
-  assert.equal(verdicts, 10);
+  assert.equal(verdicts, 14);
+  assert.ok(sentences > 40, `${sentences} facts scanned; the scan is reading a stub`);
   const fetch: Fetch = async (url) => {
     if (url === headsMirrorTableUrl()) return new Response(await readFile(new URL("./fixtures/ARCHIVE-CHAIN-2026-09-17.md", import.meta.url)), { status: 200 });
     if (url === chainDayUrl("2026-08-21")) return new Response(await readFile(new URL("./fixtures/chain-2026-08-21.json", import.meta.url)), { status: 200 });

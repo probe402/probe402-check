@@ -158,3 +158,53 @@ test("ages are said in the unit a reader would use", () => {
   assert.equal(ageWords(33839), "9.4 hours");
   assert.equal(ageWords(3 * 86400), "3.0 days");
 });
+
+/**
+ * 🔴 THE FACTS A VERDICT STOOD ON. A one-line verdict is readable and is not auditable. Every result
+ * carries the readings underneath it, each with the instant it stands at and the address that holds
+ * it, so a reader can follow one and check — which is the whole claim this tool makes for itself.
+ *
+ * The two properties worth a guard: a fact that carries a date carries a REAL one from the answer
+ * (not the time the check ran), and an ABSENCE carries no date at all rather than a convenient one.
+ */
+test("every fact carries its own date and the address that holds it", async () => {
+  const result = readAnswer("ep_67bec7d9e13ef185", await fixture("grade-ep_67bec7d9e13ef185.json"), { pay_to: "0x470a1b647d668d3820add26d70c8371557ff4c6b" }) as RouteResult;
+  assert.ok(result.facts.length >= 5, `${result.facts.length} facts`);
+  for (const fact of result.facts) {
+    assert.equal(fact.cite, "https://probe402.com/grade/ep_67bec7d9e13ef185");
+    assert.ok(fact.fact.length > 20);
+    if (fact.as_of !== null) {
+      assert.match(fact.as_of, /^2026-\d\d-\d\dT/, `a fact dated ${fact.as_of}`);
+      assert.ok(Date.parse(fact.as_of) <= Date.parse(result.window.to ?? "2027-01-01"), "a fact cannot stand after the window it was read in");
+    }
+  }
+  // The dates are the answer's own, not this run's.
+  const dates = result.facts.map((fact) => fact.as_of).filter((date): date is string => date !== null);
+  assert.ok(dates.includes("2026-09-17T02:32:23.121Z"), "the newest reading's own instant");
+  assert.ok(dates.includes("2026-09-16T17:24:16.130Z"), "the paid attempt's own instant");
+  assert.ok(!dates.some((date) => Date.parse(date) > Date.now() - 60_000), "a fact dated now is this run leaking into the record");
+  assert.ok(result.facts.some((fact) => /"Settled and answered"/.test(fact.fact)));
+  assert.ok(result.facts.some((fact) => /matches the recorded quote on pay_to/.test(fact.fact)));
+});
+
+test("🔴 an absence is a fact with no date, and says whose absence it is", async () => {
+  const notPaid = readAnswer("ep_e68279cac4e97ffb", await fixture("grade-ep_e68279cac4e97ffb.json"), null) as RouteResult;
+  const absence = notPaid.facts.find((fact) => /has not paid this route/.test(fact.fact));
+  assert.notEqual(absence, undefined, "a route probe402 has not paid must say so as a fact");
+  assert.equal(absence?.as_of, null, "an absence has no instant; a date here would be invented");
+  assert.equal(absence?.cite, "https://probe402.com/grade/ep_e68279cac4e97ffb");
+
+  const unknown = readAnswer("https://example.com/nothing-here", await fixture("grade-not-covered.json"), null);
+  assert.equal(unknown.facts.length, 1);
+  assert.equal(unknown.facts[0]?.as_of, null);
+  assert.equal(unknown.facts[0]?.cite, null, "there is no route, so there is nothing to cite");
+  assert.match(unknown.facts[0]?.fact ?? "", /fact about probe402's coverage, not about the endpoint/);
+});
+
+test("a route probe402 paid and that never answered says so once per payment", async () => {
+  const result = readAnswer("ep_4d864a69497e351a", await fixture("grade-ep_4d864a69497e351a.json"), null) as RouteResult;
+  const paid = result.facts.filter((fact) => /probe402 paid this route and graded what came back/.test(fact.fact));
+  assert.equal(paid.length, 2, "two payments, two facts");
+  assert.deepEqual(paid.map((fact) => fact.as_of), ["2026-09-09T10:09:07.732Z", "2026-09-16T17:07:52.903Z"]);
+  assert.ok(paid.every((fact) => /"Settled, no answer"/.test(fact.fact)));
+});

@@ -33,5 +33,23 @@ export {
   encodeResource,
 } from "./public-surfaces.ts";
 export type { Fetch, PublicSurface } from "./public-surfaces.ts";
+export { wrapFetchWithCheck, PaymentBlocked } from "./x402-hook.ts";
+export type { WrappedFetch, HookDecision, CheckHookOptions } from "./x402-hook.ts";
+export {
+  DEFAULT_POLICY,
+  DELIVERED_OUTCOMES,
+  MONEY_MOVED_OUTCOMES,
+  NOTHING_PAID_OUTCOMES,
+  UNCORROBORATED_OUTCOMES,
+  decide,
+  rule,
+  signalsOf,
+  recordUnavailable,
+} from "./policy.ts";
+export type { Policy, Ruling, Signal, SignalName, Decision } from "./policy.ts";
+export { readChallenge, compareChallenge, caip2Of, EVM_NETWORK_NAMES } from "./challenge.ts";
+export type { Challenge, ChallengeQuote, ChallengeComparison, FieldReading } from "./challenge.ts";
+export { factsOf, renderFacts } from "./facts.ts";
+export type { Fact } from "./facts.ts";
 export { buildServer, serveStdio, TOOL_NAME, TOOL_DESCRIPTION } from "./mcp-server.ts";
 export { VERSION } from "./version.ts";

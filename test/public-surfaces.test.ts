@@ -10,6 +10,7 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { wrapFetchWithCheck, type WrappedFetch } from "../src/x402-hook.ts";
 import {
   HEADS_MIRROR_REPOSITORY,
   HEADS_MIRROR_TABLE_URL,
@@ -132,4 +133,46 @@ test("the sources form no address anywhere else, and make no request outside fet
   }
   assert.equal(literals, 4, `expected the four declared addresses, found ${literals} address literals`);
   assert.equal(fetchCalls, 1, `expected the one fetch call inside fetchPublic, found ${fetchCalls}`);
+});
+
+/**
+ * 🔴 THE HOOK IS THE ONE PLACE THIS PACKAGE NOW SITS ON SOMEBODY ELSE'S REQUEST PATH, so the
+ * allowlist has to be asked of IT and not only of the builders. Two arms:
+ *
+ *   1. WIRING (ADR-042 rule 1): every call site of `fetchPublic` in the sources, enumerated and
+ *      COUNTED. A second door, or a request made outside one, moves this count and names itself.
+ *   2. BEHAVIOUR: the hook driven with its DEFAULT question — no `ask` injected — against a stub of
+ *      `globalThis.fetch`, so what is measured is the address the production path actually forms.
+ */
+test("every call site of the one door is enumerated and counted", async () => {
+  const files = await sourceFiles(SRC);
+  const sites: string[] = [];
+  for (const file of files) {
+    const rel = path.relative(SRC, file).replace(/\\/g, "/");
+    const text = await readFile(file, "utf8");
+    for (const _ of text.matchAll(/\bawait fetchPublic\s*\(/g)) sites.push(rel);
+  }
+  assert.deepEqual(sites.sort(), ["check.ts", "verify-head.ts", "verify-head.ts", "verify-head.ts"], "a request is made somewhere new");
+  assert.equal(sites.length, 4, `${sites.length} call sites of fetchPublic; the guard is about how many places make a request`);
+});
+
+test("🔴 the hook's own question is one allowlisted address, and it adds none of its own", async () => {
+  const resource = "https://datastand.dev/api/data/dev-signals";
+  const outbound: string[] = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL): Promise<Response> => {
+    outbound.push(typeof input === "object" && input !== null && "url" in input ? input.url : String(input));
+    return new Response(JSON.stringify({ kind: "not-covered", reason: "not-in-seed-list" }), { status: 200 });
+  }) as typeof globalThis.fetch;
+  try {
+    const endpoint: WrappedFetch = async () =>
+      new Response(JSON.stringify({ x402Version: 2, resource: { url: resource }, accepts: [] }), { status: 402 });
+    // No `ask`, so the question travels the production path: checkBeforePaying → fetchPublic.
+    await wrapFetchWithCheck(endpoint, { warn: () => undefined })(resource);
+  } finally {
+    globalThis.fetch = real;
+  }
+  assert.deepEqual(outbound, [gradeByUrlUrl(resource)], "the hook asked something other than the free grade, or asked twice");
+  assert.equal(surfaceOf(outbound[0]!), "grade-by-url");
+  for (const url of outbound) assert.notEqual(surfaceOf(url), null, `${url} is not a public surface`);
 });

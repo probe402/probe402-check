@@ -62,3 +62,39 @@ test("npm pack publishes dist, examples, README and LICENSE and nothing else", a
     assert.ok(!/\.env|fixtures|\.test\.|^src\/|^test\//.test(p), `the tarball carries ${p}`);
   }
 });
+
+/**
+ * 🔴 THE MCP REGISTRY ENTRY IS THREE FILES AGREEING, AND THE REGISTRY CHECKS THE AGREEMENT.
+ *
+ * Ownership of an npm package is proved to the MCP registry by `mcpName` in `package.json` matching
+ * the `name` in `server.json`; a publish where they differ is refused, and a `packages[].version`
+ * that is not the published one points a client at a version that is not there. Three spellings of
+ * two values, checked here rather than found by a failed publish the owner has to run twice.
+ */
+test("server.json, package.json and VERSION name one package at one version", async () => {
+  const pkg = JSON.parse(await readFile(path.join(ROOT, "package.json"), "utf8")) as Record<string, unknown>;
+  const server = JSON.parse(await readFile(path.join(ROOT, "server.json"), "utf8")) as {
+    name: string;
+    version: string;
+    repository: { url: string; source: string };
+    packages: Array<{ registryType: string; identifier: string; version: string; transport: { type: string }; packageArguments?: Array<{ value: string }> }>;
+  };
+  assert.equal(server.name, pkg["mcpName"], "the registry proves ownership by these two being equal");
+  assert.match(server.name, /^io\.github\.probe402\/[a-z0-9-]+$/, "the namespace is the one the probe402 GitHub org authenticates");
+  assert.equal(server.version, VERSION);
+  assert.equal(server.repository.url, (pkg["repository"] as { url: string }).url.replace(/^git\+/, "").replace(/\.git$/, ""));
+  assert.equal(server.repository.source, "github");
+
+  assert.equal(server.packages.length, 1);
+  const published = server.packages[0]!;
+  assert.equal(published.registryType, "npm");
+  assert.equal(published.identifier, pkg["name"]);
+  assert.equal(published.version, VERSION, "a registry entry pointing at a version npm does not hold");
+  assert.equal(published.transport.type, "stdio");
+
+  // The default bin is the CLI, so the registry entry has to say which mode to start in, and the
+  // CLI has to understand that flag. Both halves, or an MCP client runs a URL checker over stdio.
+  assert.deepEqual(published.packageArguments?.map((argument) => argument.value), ["--mcp"]);
+  const cli = await readFile(path.join(ROOT, (pkg["bin"] as Record<string, string>)["probe402-check"]!), "utf8");
+  assert.match(cli, /argv\.includes\("--mcp"\)/, "the bin the registry entry starts does not understand the flag it is started with");
+});
