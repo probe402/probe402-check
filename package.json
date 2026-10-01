@@ -1,6 +1,6 @@
 {
   "name": "probe402-check",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Ask probe402's public record about an x402 endpoint before an agent pays it, and re-check a published archive head from a terminal. Reads public surfaces of probe402.com only.",
   "license": "Apache-2.0",
   "mcpName": "io.github.probe402/probe402-check",
@@ -33,9 +33,9 @@
     }
   },
   "bin": {
-    "probe402-check": "./dist/cli/check.js",
-    "probe402-check-mcp": "./dist/cli/mcp.js",
-    "probe402-verify-head": "./dist/cli/verify-head.js"
+    "probe402-check": "dist/cli/check.js",
+    "probe402-check-mcp": "dist/cli/mcp.js",
+    "probe402-verify-head": "dist/cli/verify-head.js"
   },
   "files": [
     "dist",
